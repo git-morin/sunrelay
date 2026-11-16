@@ -36,7 +36,9 @@ jobs:
           node-version: 22
       - env:
           TITLE: ${{ github.event.pull_request.title }}
-        run: printf '%s\n' "$TITLE" | npx --yes -p @commitlint/cli@19.8.1 -p @commitlint/config-conventional@19.8.1 commitlint
+        run: |
+          npm install --no-save --no-package-lock @commitlint/cli@19.8.1 @commitlint/config-conventional@19.8.1
+          printf '%s\n' "$TITLE" | npx --no-install commitlint
 
   build:
     needs: changes
