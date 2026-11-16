@@ -1,0 +1,15 @@
+{
+  "branches": ["main", { "name": "dev", "prerelease": "beta" }],
+  "tagFormat": "v${version}",
+  "plugins": [
+    ["@semantic-release/commit-analyzer", { "preset": "conventionalcommits" }],
+    ["@semantic-release/release-notes-generator", { "preset": "conventionalcommits" }],
+    ["@semantic-release/exec", { "prepareCmd": ".github/scripts/build-release.sh ${nextRelease.version}" }],
+    ["@semantic-release/github", {
+      "assets": [{ "path": "dist/*.apk" }],
+      "successComment": false,
+      "failComment": false,
+      "releasedLabels": false
+    }]
+  ]
+}

@@ -1,0 +1,80 @@
+package dev.morin.sunrelay.config
+
+import dev.morin.sunrelay.sunshine.SunshineApi
+import dev.morin.sunrelay.ui.theme.Accent
+import dev.morin.sunrelay.ui.theme.ThemeMode
+import dev.morin.sunrelay.vpn.Vpn
+import dev.morin.sunrelay.vpn.Vpns
+
+data class RelayConfig(
+    val network: NetworkSettings = NetworkSettings(),
+    val target: String = "",
+    val relay: RelaySettings = RelaySettings(),
+    val login: SunshineLogin = SunshineLogin(),
+    val appearance: Appearance = Appearance(),
+    val onboarded: Boolean = false,
+    val autoCheck: Boolean = true,
+    val developer: DeveloperSettings = DeveloperSettings(),
+) {
+    val vpn: Vpn get() = network.selected
+    val hasTarget: Boolean get() = target.isNotBlank()
+    val canScan: Boolean get() = vpn.canScan
+    val canUseSunshineApi: Boolean get() = hasTarget && login.isComplete
+
+    fun sunshineApi(): SunshineApi = login.apiFor(target)
+    fun withVpn(vpn: Vpn) = copy(network = network.updated(vpn))
+    fun selecting(vpn: Vpn) = copy(network = network.selecting(vpn))
+}
+
+data class NetworkSettings(
+    val selectedKey: String = Vpns.DEFAULT_KEY,
+    val vpns: List<Vpn> = Vpns.defaults(),
+) {
+    val selected: Vpn get() = vpns.firstOrNull { it.key == selectedKey } ?: vpns.first()
+
+    fun selecting(vpn: Vpn) = copy(selectedKey = vpn.key)
+    fun updated(vpn: Vpn) = copy(vpns = vpns.map { if (it.key == vpn.key) vpn else it })
+}
+
+data class RelaySettings(
+    val tcpPorts: String = "47984,47989,47990,48010",
+    val udpPorts: String = "47998,47999,48000,48002,48010",
+    val udpIdleSec: Int = 60,
+    val mdns: Boolean = true,
+) {
+    val tcpPortList: List<Int> get() = parsePorts(tcpPorts)
+    val udpPortList: List<Int> get() = parsePorts(udpPorts)
+    val udpIdleMs: Long get() = udpIdleSec * 1000L
+
+    fun withUdpIdle(seconds: Int) = copy(udpIdleSec = seconds.coerceIn(MIN_IDLE_SEC, MAX_IDLE_SEC))
+
+    private fun parsePorts(s: String): List<Int> =
+        s.split(',', ' ').mapNotNull { it.trim().toIntOrNull() }.filter { it in 1..65535 }.distinct()
+
+    private companion object {
+        const val MIN_IDLE_SEC = 5
+        const val MAX_IDLE_SEC = 3600
+    }
+}
+
+data class SunshineLogin(
+    val user: String = "",
+    val password: String = "",
+    val pairedUuid: String = "",
+) {
+    val isComplete: Boolean get() = user.isNotBlank() && password.isNotEmpty()
+
+    fun apiFor(host: String) = SunshineApi(host.trim(), user.trim(), password)
+}
+
+data class DeveloperSettings(
+    val unlocked: Boolean = false,
+    val prereleases: Boolean = false,
+) {
+    val includePrereleases: Boolean get() = unlocked && prereleases
+}
+
+data class Appearance(
+    val accent: Accent = Accent.Sunshine,
+    val themeMode: ThemeMode = ThemeMode.System,
+)

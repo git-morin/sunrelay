@@ -1,0 +1,19 @@
+product: android/app
+
+dependencies:
+  - $compose.foundation
+  - $compose.material3
+  - androidx.activity:activity-compose:1.13.0
+
+settings:
+  android:
+    applicationId: "dev.morin.sunrelay"
+    namespace: "dev.morin.sunrelay"
+    minSdk: 31
+    versionCode: 1
+    versionName: "0.1.0"
+    signing:
+      enabled: true
+      propertiesFile: ./keystore.properties
+  compose: enabled
+  junit: junit-4
