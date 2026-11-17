@@ -25,14 +25,12 @@ internal class UdpForwarder(
     private var full = false
 
     fun start() {
-        // Built outside apply: in there, `port` would be DatagramSocket.getPort(), which is -1 until connected.
-        val local = InetSocketAddress(bindAddress, port)
-        val listener = sockets.track(DatagramSocket(null).apply {
-            reuseAddress = true
-            receiveBufferSize = SOCKET_BUFFER
-            sendBufferSize = SOCKET_BUFFER
-            bind(local)
-        })
+        val listener = sockets.open(DatagramSocket(null)) {
+            it.reuseAddress = true
+            it.receiveBufferSize = SOCKET_BUFFER
+            it.sendBufferSize = SOCKET_BUFFER
+            it.bind(InetSocketAddress(bindAddress, port))
+        }
         thread(name = "udp-$port", isDaemon = true) { receiveLoop(listener) }
     }
 
@@ -72,12 +70,13 @@ internal class UdpForwarder(
 
     private inner class Session(private val listener: DatagramSocket, private val source: SocketAddress) {
         private val clientIp = (source as? InetSocketAddress)?.address?.hostAddress ?: "?"
-        private val upstream = sockets.track(DatagramSocket().apply {
-            receiveBufferSize = SOCKET_BUFFER
-            sendBufferSize = SOCKET_BUFFER
-            soTimeout = RECEIVE_TIMEOUT_MS
-            connect(destination)
-        })
+        // Closed again if connecting fails, or every packet from this client would leak a socket.
+        private val upstream = sockets.open(DatagramSocket()) {
+            it.receiveBufferSize = SOCKET_BUFFER
+            it.sendBufferSize = SOCKET_BUFFER
+            it.soTimeout = RECEIVE_TIMEOUT_MS
+            it.connect(destination)
+        }
 
         @Volatile
         private var lastSeen = System.currentTimeMillis()
