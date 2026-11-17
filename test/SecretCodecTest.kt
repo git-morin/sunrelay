@@ -6,6 +6,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Base64
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 
@@ -49,8 +50,11 @@ class SecretCodecTest {
     @Test
     fun aTamperedValueCannotBeDecrypted() {
         val stored = codec.encode("hunter2")
-        val flipped = stored.dropLast(2) + if (stored[stored.length - 2] == 'A') "B=" else "A="
-        assertNull(codec.decode(flipped))
+        // Flip a decoded byte, not a base64 character: the last character before the padding partly holds bits
+        // the decoder ignores, so editing the text can leave the bytes unchanged.
+        val sealed = Base64.getDecoder().decode(stored.removePrefix("enc1:"))
+        sealed[sealed.size - 1] = (sealed[sealed.size - 1].toInt() xor 1).toByte()
+        assertNull(codec.decode("enc1:" + Base64.getEncoder().encodeToString(sealed)))
         assertNull(codec.decode("enc1:AAAA"))
         assertNull(codec.decode("enc1:not base64!"))
     }
