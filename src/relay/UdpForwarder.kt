@@ -13,12 +13,14 @@ internal class UdpForwarder(
     target: InetAddress,
     private val port: Int,
     private val idleMs: Long,
+    private val clients: ClientFilter,
     private val stats: RelayStats,
     private val sockets: SocketRegistry,
     private val log: (String) -> Unit,
 ) {
     private val destination = InetSocketAddress(target, port)
     private val sessions = ConcurrentHashMap<SocketAddress, Session>()
+    private val refused = mutableSetOf<SocketAddress>()
 
     fun start() {
         val listener = sockets.track(DatagramSocket(null).apply {
@@ -42,11 +44,20 @@ internal class UdpForwarder(
                 return
             }
             val source = packet.socketAddress
-            val session = sessions[source] ?: runCatching { Session(listener, source).also { it.start() } }
-                .onFailure { log("udp $port dial: ${it.message}") }
-                .getOrNull() ?: continue
+            val session = sessions[source] ?: openSession(listener, packet) ?: continue
             session.sendUpstream(buffer, packet.length)
         }
+    }
+
+    private fun openSession(listener: DatagramSocket, packet: DatagramPacket): Session? {
+        val source = packet.socketAddress
+        if (!clients.allows(packet.address)) {
+            if (refused.size < MAX_REFUSED_LOGGED && refused.add(source)) log("udp $port: refused $source, not on the hotspot")
+            return null
+        }
+        return runCatching { Session(listener, source).also { it.start() } }
+            .onFailure { log("udp $port dial: ${it.message}") }
+            .getOrNull()
     }
 
     private inner class Session(private val listener: DatagramSocket, private val source: SocketAddress) {
@@ -112,5 +123,6 @@ internal class UdpForwarder(
         const val SOCKET_BUFFER = 4 shl 20
         const val MAX_DATAGRAM = 65535
         const val RECEIVE_TIMEOUT_MS = 1000
+        const val MAX_REFUSED_LOGGED = 32
     }
 }

@@ -63,7 +63,7 @@ class RelayService : Service() {
                 fail("Can't resolve ${config.target}: ${it.message}")
                 return@thread
             }
-            val started = Relay(address, config.relay, RelayLog::append)
+            val started = Relay(address, config.relay, ClientFilter(network::hotspotPrefixes), RelayLog::append)
             val errors = started.start()
             handler.post { onRelayStarted(config, address, started, errors) }
         }

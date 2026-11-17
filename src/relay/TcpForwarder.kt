@@ -14,6 +14,7 @@ import kotlin.concurrent.thread
 internal class TcpForwarder(
     private val target: InetAddress,
     private val port: Int,
+    private val clients: ClientFilter,
     private val stats: RelayStats,
     private val sockets: SocketRegistry,
     private val log: (String) -> Unit,
@@ -33,6 +34,11 @@ internal class TcpForwarder(
             } catch (e: Exception) {
                 if (!sockets.closed) log("tcp $port accept: ${e.message}")
                 return
+            }
+            if (!clients.allows(client.inetAddress)) {
+                log("tcp $port: refused ${client.remoteSocketAddress}, not on the hotspot")
+                runCatching { client.close() }
+                continue
             }
             thread(name = "tcp-$port-${client.remoteSocketAddress}", isDaemon = true) { forward(client) }
         }

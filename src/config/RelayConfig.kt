@@ -37,7 +37,7 @@ data class NetworkSettings(
 }
 
 data class RelaySettings(
-    val tcpPorts: String = "47984,47989,47990,48010",
+    val tcpPorts: String = DEFAULT_TCP_PORTS,
     val udpPorts: String = "47998,47999,48000,48002,48010",
     val udpIdleSec: Int = 60,
     val mdns: Boolean = true,
@@ -51,9 +51,16 @@ data class RelaySettings(
     private fun parsePorts(s: String): List<Int> =
         s.split(',', ' ').mapNotNull { it.trim().toIntOrNull() }.filter { it in 1..65535 }.distinct()
 
-    private companion object {
-        const val MIN_IDLE_SEC = 5
-        const val MAX_IDLE_SEC = 3600
+    companion object {
+        private const val DEFAULT_TCP_PORTS = "47984,47989,48010"
+
+        /** Older builds also relayed 47990, Sunshine's web admin UI, which Moonlight never needs. */
+        private const val LEGACY_TCP_PORTS = "47984,47989,47990,48010"
+
+        fun migrateTcpPorts(saved: String): String = if (saved == LEGACY_TCP_PORTS) DEFAULT_TCP_PORTS else saved
+
+        private const val MIN_IDLE_SEC = 5
+        private const val MAX_IDLE_SEC = 3600
     }
 }
 
