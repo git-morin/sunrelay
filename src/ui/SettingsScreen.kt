@@ -75,6 +75,7 @@ import dev.morin.sunrelay.config.RelaySettings
 import dev.morin.sunrelay.relay.RelayLog
 import dev.morin.sunrelay.relay.RelayState
 import dev.morin.sunrelay.sunshine.PairedClient
+import dev.morin.sunrelay.sunshine.SunshinePins
 import dev.morin.sunrelay.ui.theme.Accent
 import dev.morin.sunrelay.ui.theme.ThemeMode
 import kotlinx.coroutines.Dispatchers
@@ -133,6 +134,7 @@ private fun SunshineLoginSection(config: RelayConfig, onChange: (RelayConfig) ->
     val scope = rememberCoroutineScope()
     var clients by remember { mutableStateOf<List<PairedClient>?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
+    var pinned by remember(config.target, message) { mutableStateOf(config.hasTarget && SunshinePins.has(config.target)) }
 
     fun loadClients() {
         message = "…"
@@ -158,6 +160,13 @@ private fun SunshineLoginSection(config: RelayConfig, onChange: (RelayConfig) ->
             OutlinedButton(onClick = ::loadClients, enabled = config.canUseSunshineApi) { Text("Test") }
             Spacer(Modifier.width(12.dp))
             message?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        }
+        if (pinned) {
+            TextButton(onClick = {
+                SunshinePins.forget(config.target)
+                pinned = false
+                message = "Certificate forgotten. The next connection trusts Sunshine's current one."
+            }) { Text("Forget certificate") }
         }
         clients?.let { list ->
             Text("Paired devices", style = MaterialTheme.typography.titleSmall)
