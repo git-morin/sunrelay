@@ -29,6 +29,8 @@ jobs:
         with:
           path: ~/.cache/JetBrains
           key: kotlin-${{ runner.os }}-${{ hashFiles('module.yaml', 'kotlin') }}
+      - name: Test
+        run: ./kotlin test
       - name: Write signing config
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
