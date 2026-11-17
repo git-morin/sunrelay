@@ -1,0 +1,10 @@
+{
+  "name": "sunrelay-release",
+  "private": true,
+  "description": "Release tooling for CI, installed with npm ci so every dependency matches the lockfile",
+  "devDependencies": {
+    "@semantic-release/exec": "6.0.3",
+    "conventional-changelog-conventionalcommits": "8.0.0",
+    "semantic-release": "24.2.9"
+  }
+}

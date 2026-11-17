@@ -20,7 +20,7 @@ data class Headscale(val url: String = "", val apiKey: String = "") : ApiVpn() {
 
     override fun writeTo(settings: SettingsWriter) {
         settings.string(URL, url.trim())
-        settings.string(API_KEY, apiKey.trim())
+        settings.secret(API_KEY, apiKey.trim())
     }
 
     override fun devices(): List<VpnDevice> {
@@ -59,6 +59,6 @@ data class Headscale(val url: String = "", val apiKey: String = "") : ApiVpn() {
         private val ENDPOINTS = listOf("/api/v1/node" to "nodes", "/api/v1/machine" to "machines")
 
         fun readFrom(settings: SettingsReader) =
-            Headscale(settings.string(URL).orEmpty(), settings.string(API_KEY).orEmpty())
+            Headscale(settings.string(URL).orEmpty(), settings.secret(API_KEY).orEmpty())
     }
 }

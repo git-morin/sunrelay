@@ -18,7 +18,7 @@ data class NetBird(val url: String = "", val token: String = "") : ApiVpn() {
 
     override fun writeTo(settings: SettingsWriter) {
         settings.string(URL, url.trim())
-        settings.string(TOKEN, token.trim())
+        settings.secret(TOKEN, token.trim())
     }
 
     override fun devices(): List<VpnDevice> {
@@ -61,6 +61,6 @@ data class NetBird(val url: String = "", val token: String = "") : ApiVpn() {
         private const val TOKEN = "nbToken"
 
         fun readFrom(settings: SettingsReader) =
-            NetBird(settings.string(URL).orEmpty(), settings.string(TOKEN).orEmpty())
+            NetBird(settings.string(URL).orEmpty(), settings.secret(TOKEN).orEmpty())
     }
 }

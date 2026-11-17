@@ -8,6 +8,8 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
 
@@ -19,6 +21,7 @@ internal class TcpForwarder(
     private val sockets: SocketRegistry,
     private val log: (String) -> Unit,
     private val bindAddress: InetAddress? = null,
+    private val halfCloseGraceMs: Long = Relay.HALF_CLOSE_GRACE_MS,
 ) {
     fun start() {
         val server = sockets.open(ServerSocket()) {
@@ -63,12 +66,21 @@ internal class TcpForwarder(
             stats.clientJoined(clientIp)
             counted = true
             log("tcp $port: ${client.remoteSocketAddress} connected")
-            val uplink = thread(name = "tcp-$port-up", isDaemon = true) {
-                pump(fromClient, toUpstream, stats.bytesUp)
-                runCatching { remote.shutdownOutput() }
+            val finished = CountDownLatch(2)
+            fun relayDirection(source: InputStream, sink: OutputStream, counter: AtomicLong, shutdown: () -> Unit) {
+                pump(source, sink, counter)
+                runCatching(shutdown)
+                finished.countDown()
+                // A peer that never closes its side would hold both threads forever, so give it a grace period, then close both.
+                if (!finished.await(halfCloseGraceMs, TimeUnit.MILLISECONDS)) {
+                    runCatching { client.close() }
+                    runCatching { remote.close() }
+                }
             }
-            pump(fromUpstream, toClient, stats.bytesDown)
-            runCatching { client.shutdownOutput() }
+            val uplink = thread(name = "tcp-$port-up", isDaemon = true) {
+                relayDirection(fromClient, toUpstream, stats.bytesUp) { remote.shutdownOutput() }
+            }
+            relayDirection(fromUpstream, toClient, stats.bytesDown) { client.shutdownOutput() }
             uplink.join()
             log("tcp $port: ${client.remoteSocketAddress} closed")
         } catch (e: Exception) {

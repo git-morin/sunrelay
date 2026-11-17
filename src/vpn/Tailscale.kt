@@ -33,7 +33,7 @@ data class Tailscale(val clientId: String = "", val clientSecret: String = "") :
 
     override fun writeTo(settings: SettingsWriter) {
         settings.string(CLIENT_ID, clientId.trim())
-        settings.string(CLIENT_SECRET, clientSecret.trim())
+        settings.secret(CLIENT_SECRET, clientSecret.trim())
     }
 
     override fun devices(): List<VpnDevice> {
@@ -83,7 +83,7 @@ data class Tailscale(val clientId: String = "", val clientSecret: String = "") :
         private const val CLIENT_SECRET = "tsSecret"
 
         fun readFrom(settings: SettingsReader) =
-            Tailscale(settings.string(CLIENT_ID).orEmpty(), settings.string(CLIENT_SECRET).orEmpty())
+            Tailscale(settings.string(CLIENT_ID).orEmpty(), settings.secret(CLIENT_SECRET).orEmpty())
     }
 }
 
