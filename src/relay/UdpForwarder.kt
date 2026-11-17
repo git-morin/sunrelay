@@ -17,6 +17,7 @@ internal class UdpForwarder(
     private val stats: RelayStats,
     private val sockets: SocketRegistry,
     private val log: (String) -> Unit,
+    private val bindAddress: InetAddress? = null,
 ) {
     private val destination = InetSocketAddress(target, port)
     private val sessions = ConcurrentHashMap<SocketAddress, Session>()
@@ -24,11 +25,13 @@ internal class UdpForwarder(
     private var full = false
 
     fun start() {
+        // Built outside apply: in there, `port` would be DatagramSocket.getPort(), which is -1 until connected.
+        val local = InetSocketAddress(bindAddress, port)
         val listener = sockets.track(DatagramSocket(null).apply {
             reuseAddress = true
             receiveBufferSize = SOCKET_BUFFER
             sendBufferSize = SOCKET_BUFFER
-            bind(InetSocketAddress(port))
+            bind(local)
         })
         thread(name = "udp-$port", isDaemon = true) { receiveLoop(listener) }
     }
