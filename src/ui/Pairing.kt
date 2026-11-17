@@ -25,6 +25,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -36,6 +37,7 @@ import dev.morin.sunrelay.relay.RelayLog
 import dev.morin.sunrelay.sunshine.PairedClient
 import dev.morin.sunrelay.sunshine.PairingService
 import dev.morin.sunrelay.sunshine.PendingPairing
+import dev.morin.sunrelay.sunshine.SunshineApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -54,15 +56,16 @@ class PairingController(private val scope: CoroutineScope) {
         if (value.length <= PIN_LENGTH && value.all(Char::isDigit)) pins[request.id] = value
     }
 
-    fun submit(config: RelayConfig, onChange: (RelayConfig) -> Unit, request: PendingPairing, pin: String) {
+    /** [onPaired] runs seconds later, so it must apply the uuid to the config as it is then, not as it was here. */
+    fun submit(api: SunshineApi, request: PendingPairing, pin: String, onPaired: (uuid: String) -> Unit) {
         busy = true
         message = null
         scope.launch {
-            withContext(Dispatchers.IO) { runCatching { PairingService(config.sunshineApi()).pair(request, pin) } }
+            withContext(Dispatchers.IO) { runCatching { PairingService(api).pair(request, pin) } }
                 .onSuccess { result ->
                     message = if (result.accepted) "✓ Paired. Moonlight should now list the host." else "✗ Wrong PIN, try again."
                     if (result.accepted) pins.remove(request.id)
-                    result.newClientUuid?.let { onChange(config.copy(login = config.login.copy(pairedUuid = it))) }
+                    result.newClientUuid?.let(onPaired)
                 }
                 .onFailure { message = "✗ ${it.message}" }
             busy = false
@@ -96,10 +99,14 @@ fun PairingPrompt(
     pairing: PairingController,
     showMessage: Boolean = true,
 ) {
+    val latestConfig by rememberUpdatedState(config)
+    val latestOnChange by rememberUpdatedState(onChange)
+    fun recordPaired(uuid: String) = latestOnChange(latestConfig.copy(login = latestConfig.login.copy(pairedUuid = uuid)))
+
     val requests = state.pendingPairings
     requests.forEach { request ->
         if (requests.size > 1) Text(request.requestText(), style = MaterialTheme.typography.titleSmall)
-        PinEntry(request, pairing) { pin -> pairing.submit(config, onChange, request, pin) }
+        PinEntry(request, pairing) { pin -> pairing.submit(config.sunshineApi(), request, pin, ::recordPaired) }
     }
     if (showMessage) pairing.message?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
 }
