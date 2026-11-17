@@ -132,4 +132,36 @@ class RelayTest {
             upstream.close()
         }
     }
+
+    @Test
+    fun aHalfClosedTcpConnectionIsClosedAfterTheGracePeriod() {
+        val target = InetAddress.getByName("127.0.0.2")
+        val upstream = ServerSocket(0, 1, target)
+        val port = upstream.localPort
+        // The host finishes sending but keeps reading; the client never closes its side.
+        val host = thread(isDaemon = true) {
+            runCatching {
+                upstream.accept().use { s ->
+                    s.getOutputStream().write("bye".toByteArray())
+                    s.shutdownOutput()
+                    s.getInputStream().read()
+                }
+            }
+        }
+        val relay = Relay(target, RelaySettings(tcpPorts = "$port", udpPorts = ""), allowLoopback, {}, loopback, halfCloseGraceMs = 500)
+        assertEquals(emptyList<String>(), relay.start())
+        try {
+            Socket().use { client ->
+                client.connect(InetSocketAddress(loopback, port), 2000)
+                client.soTimeout = 2000
+                assertArrayEquals("bye".toByteArray(), client.getInputStream().readNBytes(3))
+                assertEquals(1L, eventually(1L) { relay.stats.tcpActive.get() })
+                assertEquals(0L, eventually(0L) { relay.stats.tcpActive.get() })
+            }
+            host.join(2000)
+        } finally {
+            relay.stop()
+            upstream.close()
+        }
+    }
 }

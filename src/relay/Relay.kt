@@ -10,6 +10,8 @@ class Relay(
     private val log: (String) -> Unit,
     /** Where the forwarders listen; every interface unless a test needs one address. */
     private val bindAddress: InetAddress? = null,
+    /** How long a TCP connection may stay open in one direction after the other has closed. */
+    private val halfCloseGraceMs: Long = HALF_CLOSE_GRACE_MS,
 ) {
     val stats = RelayStats()
     private val sockets = SocketRegistry()
@@ -17,7 +19,7 @@ class Relay(
     fun start(): List<String> {
         val errors = mutableListOf<String>()
         settings.tcpPortList.forEach { port ->
-            runCatching { TcpForwarder(target, port, clients, stats, sockets, log, bindAddress).start() }
+            runCatching { TcpForwarder(target, port, clients, stats, sockets, log, bindAddress, halfCloseGraceMs).start() }
                 .onFailure { errors += "tcp/$port: ${it.message}" }
         }
         settings.udpPortList.forEach { port ->
@@ -30,4 +32,8 @@ class Relay(
     }
 
     fun stop() = sockets.closeAll()
+
+    companion object {
+        const val HALF_CLOSE_GRACE_MS = 10_000L
+    }
 }
