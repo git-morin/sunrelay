@@ -21,24 +21,25 @@ internal class TcpForwarder(
     private val bindAddress: InetAddress? = null,
 ) {
     fun start() {
-        val server = sockets.track(ServerSocket().apply {
-            reuseAddress = true
-            bind(InetSocketAddress(bindAddress, port), BACKLOG)
-        })
+        val server = sockets.open(ServerSocket()) {
+            it.reuseAddress = true
+            it.bind(InetSocketAddress(bindAddress, port), BACKLOG)
+        }
         thread(name = "tcp-accept-$port", isDaemon = true) { acceptLoop(server) }
     }
 
     private fun acceptLoop(server: ServerSocket) {
         while (!sockets.closed) {
+            // Tracked as soon as it's accepted, so a stop from here on closes it.
             val client = try {
-                server.accept()
+                sockets.track(server.accept())
             } catch (e: Exception) {
                 if (!sockets.closed) log("tcp $port accept: ${e.message}")
                 return
             }
             if (!clients.allows(client.inetAddress)) {
                 log("tcp $port: refused ${client.remoteSocketAddress}, not on the hotspot")
-                runCatching { client.close() }
+                sockets.release(client)
                 continue
             }
             thread(name = "tcp-$port-${client.remoteSocketAddress}", isDaemon = true) { forward(client) }
@@ -46,25 +47,25 @@ internal class TcpForwarder(
     }
 
     private fun forward(client: Socket) {
-        sockets.track(client)
         val clientIp = client.inetAddress.hostAddress ?: "?"
-        val upstream = sockets.track(Socket())
+        var upstream: Socket? = null
         var counted = false
         try {
-            upstream.connect(InetSocketAddress(target, port), CONNECT_TIMEOUT_MS)
+            val remote = sockets.track(Socket()).also { upstream = it }
+            remote.connect(InetSocketAddress(target, port), CONNECT_TIMEOUT_MS)
             tune(client)
-            tune(upstream)
+            tune(remote)
             val fromClient = client.getInputStream()
             val toClient = client.getOutputStream()
-            val fromUpstream = upstream.getInputStream()
-            val toUpstream = upstream.getOutputStream()
+            val fromUpstream = remote.getInputStream()
+            val toUpstream = remote.getOutputStream()
             stats.tcpActive.incrementAndGet()
             stats.clientJoined(clientIp)
             counted = true
             log("tcp $port: ${client.remoteSocketAddress} connected")
             val uplink = thread(name = "tcp-$port-up", isDaemon = true) {
                 pump(fromClient, toUpstream, stats.bytesUp)
-                runCatching { upstream.shutdownOutput() }
+                runCatching { remote.shutdownOutput() }
             }
             pump(fromUpstream, toClient, stats.bytesDown)
             runCatching { client.shutdownOutput() }
@@ -77,7 +78,7 @@ internal class TcpForwarder(
                 stats.tcpActive.decrementAndGet()
                 stats.clientLeft(clientIp)
             }
-            sockets.release(upstream)
+            upstream?.let(sockets::release)
             sockets.release(client)
         }
     }

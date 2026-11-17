@@ -4,6 +4,7 @@ import dev.morin.sunrelay.config.RelaySettings
 import dev.morin.sunrelay.net.AddressPrefix
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -11,6 +12,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.SocketTimeoutException
 import kotlin.concurrent.thread
 
 class RelayTest {
@@ -97,6 +99,34 @@ class RelayTest {
                 assertEquals(-1, runCatching { client.getInputStream().read() }.getOrDefault(-1))
             }
             assertEquals(0L, relay.stats.tcpActive.get())
+        } finally {
+            relay.stop()
+            upstream.close()
+        }
+    }
+
+    @Test
+    fun stoppingClosesOpenTcpConnections() {
+        val target = InetAddress.getByName("127.0.0.2")
+        val upstream = ServerSocket(0, 1, target)
+        val port = upstream.localPort
+        // The host accepts and then stays silent, so only the relay stopping can end the connection.
+        val accepted = thread(isDaemon = true) { runCatching { upstream.accept() } }
+        val relay = Relay(target, RelaySettings(tcpPorts = "$port", udpPorts = ""), allowLoopback, {}, loopback)
+        assertEquals(emptyList<String>(), relay.start())
+        try {
+            Socket().use { client ->
+                client.connect(InetSocketAddress(loopback, port), 2000)
+                client.soTimeout = 2000
+                assertEquals(1L, eventually(1L) { relay.stats.tcpActive.get() })
+                relay.stop()
+                // Closed by the relay reads as end of stream or a reset; a timeout would mean it stayed open.
+                val read = runCatching { client.getInputStream().read() }
+                assertFalse(read.exceptionOrNull() is SocketTimeoutException)
+                assertEquals(-1, read.getOrDefault(-1))
+                assertEquals(0L, eventually(0L) { relay.stats.tcpActive.get() })
+            }
+            accepted.join(2000)
         } finally {
             relay.stop()
             upstream.close()
