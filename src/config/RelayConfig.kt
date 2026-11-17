@@ -46,10 +46,7 @@ data class RelaySettings(
     val udpPortList: List<Int> get() = parsePorts(udpPorts)
     val udpIdleMs: Long get() = udpIdleSec * 1000L
 
-    fun withUdpIdle(seconds: Int) = copy(udpIdleSec = seconds.coerceIn(MIN_IDLE_SEC, MAX_IDLE_SEC))
-
-    private fun parsePorts(s: String): List<Int> =
-        s.split(',', ' ').mapNotNull { it.trim().toIntOrNull() }.filter { it in 1..65535 }.distinct()
+    fun withUdpIdle(seconds: Int) = copy(udpIdleSec = seconds.coerceIn(IDLE_RANGE))
 
     companion object {
         private const val DEFAULT_TCP_PORTS = "47984,47989,48010"
@@ -59,8 +56,16 @@ data class RelaySettings(
 
         fun migrateTcpPorts(saved: String): String = if (saved == LEGACY_TCP_PORTS) DEFAULT_TCP_PORTS else saved
 
-        private const val MIN_IDLE_SEC = 5
-        private const val MAX_IDLE_SEC = 3600
+        val IDLE_RANGE = 5..3600
+
+        /** Entries in a port list that aren't a port number, so the UI can say they're ignored. */
+        fun invalidPorts(s: String): List<String> = tokens(s).filter { it.toIntOrNull() !in PORT_RANGE }
+
+        private val PORT_RANGE = 1..65535
+
+        private fun tokens(s: String) = s.split(',', ' ').map { it.trim() }.filter { it.isNotEmpty() }
+
+        private fun parsePorts(s: String): List<Int> = tokens(s).mapNotNull { it.toIntOrNull() }.filter { it in PORT_RANGE }.distinct()
     }
 }
 
