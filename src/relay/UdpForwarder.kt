@@ -21,6 +21,7 @@ internal class UdpForwarder(
     private val destination = InetSocketAddress(target, port)
     private val sessions = ConcurrentHashMap<SocketAddress, Session>()
     private val refused = mutableSetOf<SocketAddress>()
+    private var full = false
 
     fun start() {
         val listener = sockets.track(DatagramSocket(null).apply {
@@ -55,6 +56,12 @@ internal class UdpForwarder(
             if (refused.size < MAX_REFUSED_LOGGED && refused.add(source)) log("udp $port: refused $source, not on the hotspot")
             return null
         }
+        if (sessions.size >= MAX_SESSIONS) {
+            if (!full) log("udp $port: $MAX_SESSIONS sessions open, refusing new ones until some go idle")
+            full = true
+            return null
+        }
+        full = false
         return runCatching { Session(listener, source).also { it.start() } }
             .onFailure { log("udp $port dial: ${it.message}") }
             .getOrNull()
@@ -124,5 +131,8 @@ internal class UdpForwarder(
         const val MAX_DATAGRAM = 65535
         const val RECEIVE_TIMEOUT_MS = 1000
         const val MAX_REFUSED_LOGGED = 32
+
+        /** Each session holds a thread and two 4 MB buffers; a few Moonlight clients need a handful per port. */
+        const val MAX_SESSIONS = 32
     }
 }
