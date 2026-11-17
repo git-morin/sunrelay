@@ -17,6 +17,12 @@ class RelayTest {
     private val loopback = InetAddress.getLoopbackAddress()
     private val allowLoopback = ClientFilter({ listOf(AddressPrefix(loopback, 8)) })
 
+    private fun eventually(expected: Long, read: () -> Long): Long {
+        val deadline = System.currentTimeMillis() + 2000
+        while (read() != expected && System.currentTimeMillis() < deadline) Thread.sleep(10)
+        return read()
+    }
+
     @Test
     fun throughputIsBitsPerSecondOverTheInterval() {
         val meter = ThroughputMeter(2000)
@@ -43,8 +49,9 @@ class RelayTest {
                 assertArrayEquals("olleh".toByteArray(), client.getInputStream().readNBytes(5))
             }
             echo.join(2000)
-            assertEquals(5L, relay.stats.bytesUp.get())
-            assertEquals(5L, relay.stats.bytesDown.get())
+            // The forwarder counts bytes after writing them on, so the client can see them a moment before the stats do.
+            assertEquals(5L, eventually(5L) { relay.stats.bytesUp.get() })
+            assertEquals(5L, eventually(5L) { relay.stats.bytesDown.get() })
         } finally {
             relay.stop()
             upstream.close()
