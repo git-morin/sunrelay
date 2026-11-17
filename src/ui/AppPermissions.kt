@@ -28,15 +28,22 @@ data class PermissionStatus(
 
 object AppPermissions {
     const val LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
-    val RUNTIME = arrayOf(LOCAL_NETWORK, Manifest.permission.POST_NOTIFICATIONS)
 
     fun status(context: Context) = PermissionStatus(
         notifications = context.granted(Manifest.permission.POST_NOTIFICATIONS),
-        localNetwork = context.granted(LOCAL_NETWORK),
+        localNetwork = !context.defines(LOCAL_NETWORK) || context.granted(LOCAL_NETWORK),
         unrestrictedBattery = context.getSystemService(PowerManager::class.java)
             .isIgnoringBatteryOptimizations(context.packageName),
     )
 
+    /** The runtime permissions this Android version knows about. */
+    fun runtime(context: Context): Array<String> =
+        listOf(LOCAL_NETWORK, Manifest.permission.POST_NOTIFICATIONS).filter { context.defines(it) }.toTypedArray()
+
     private fun Context.granted(permission: String) =
         checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+
+    /** Older Android versions don't have ACCESS_LOCAL_NETWORK, and local network access needs no grant there. */
+    private fun Context.defines(permission: String) =
+        runCatching { packageManager.getPermissionInfo(permission, 0) }.isSuccess
 }
