@@ -18,11 +18,12 @@ internal class TcpForwarder(
     private val stats: RelayStats,
     private val sockets: SocketRegistry,
     private val log: (String) -> Unit,
+    private val bindAddress: InetAddress? = null,
 ) {
     fun start() {
         val server = sockets.track(ServerSocket().apply {
             reuseAddress = true
-            bind(InetSocketAddress(port), BACKLOG)
+            bind(InetSocketAddress(bindAddress, port), BACKLOG)
         })
         thread(name = "tcp-accept-$port", isDaemon = true) { acceptLoop(server) }
     }
