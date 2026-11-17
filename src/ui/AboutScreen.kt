@@ -2,7 +2,6 @@
 
 package dev.morin.sunrelay.ui
 
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -191,12 +190,11 @@ private val TOES = listOf(
 )
 
 private fun findShelter(context: Context) {
-    val maps = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(SHELTER_QUERY)}"))
-    try {
-        context.startActivity(maps)
-    } catch (_: ActivityNotFoundException) {
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/maps/search/${Uri.encode(SHELTER_QUERY)}")))
-    }
+    SystemScreens.open(
+        context,
+        Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(SHELTER_QUERY)}")),
+        Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/maps/search/${Uri.encode(SHELTER_QUERY)}")),
+    )
 }
 
 private const val TRADEMARK_NOTICE =

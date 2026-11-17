@@ -36,7 +36,7 @@ internal fun OpenVpnAppButton(packageName: String?, appName: String, onAction: (
     val context = LocalContext.current
     val launch = remember(packageName) { packageName?.let { context.packageManager.getLaunchIntentForPackage(it) } }
     if (launch != null) {
-        OutlinedButton(onClick = { context.startActivity(launch); onAction() }) { Text("Open $appName") }
+        OutlinedButton(onClick = { SystemScreens.open(context, launch); onAction() }) { Text("Open $appName") }
     } else {
         OutlinedButton(onClick = { SystemScreens.vpnSettings(context); onAction() }) { Text("Open VPN settings") }
     }

@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import dev.morin.sunrelay.R
 import dev.morin.sunrelay.config.SettingsReader
 import dev.morin.sunrelay.config.SettingsWriter
+import dev.morin.sunrelay.net.SystemScreens
 import dev.morin.sunrelay.util.objects
 import dev.morin.sunrelay.util.strings
 import org.json.JSONObject
@@ -90,9 +91,10 @@ object TailscaleApp {
     private const val PACKAGE = "com.tailscale.ipn"
 
     fun open(context: Context) {
-        val launch = context.packageManager.getLaunchIntentForPackage(PACKAGE)
-            ?: Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$PACKAGE")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(launch)
+        val store = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$PACKAGE")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val web = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$PACKAGE"))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        SystemScreens.open(context, *listOfNotNull(context.packageManager.getLaunchIntentForPackage(PACKAGE), store, web).toTypedArray())
     }
 
     fun connect(context: Context) =
