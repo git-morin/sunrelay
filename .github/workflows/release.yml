@@ -29,6 +29,8 @@ jobs:
         with:
           path: ~/.cache/JetBrains
           key: kotlin-${{ runner.os }}-${{ hashFiles('module.yaml', 'kotlin') }}
+      - name: Test
+        run: ./kotlin test
       - name: Write signing config
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -46,10 +48,9 @@ jobs:
       - name: Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION_CODE: ${{ github.run_number }}
         run: >
           npx --yes
-          -p semantic-release@24
-          -p @semantic-release/exec@6
-          -p conventional-changelog-conventionalcommits@8
+          -p semantic-release@24.2.9
+          -p @semantic-release/exec@6.0.3
+          -p conventional-changelog-conventionalcommits@8.0.0
           semantic-release

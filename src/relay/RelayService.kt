@@ -13,7 +13,7 @@ import dev.morin.sunrelay.config.ConfigRepository
 import dev.morin.sunrelay.config.RelayConfig
 import dev.morin.sunrelay.net.NetworkMonitor
 import java.net.InetAddress
-import kotlin.concurrent.thread
+import java.util.concurrent.Executors
 
 class RelayService : Service() {
     private val handler = Handler(Looper.getMainLooper())
@@ -25,6 +25,17 @@ class RelayService : Service() {
     private val ticker = Runnable { tick() }
     private var relay: Relay? = null
 
+    /** Starts run one at a time, so a stale start always lets go of its ports before the next one binds. */
+    private val starter = Executors.newSingleThreadExecutor { Thread(it, "relay-start") }
+
+    /**
+     * Bumped on every start and teardown, under [lock]; a start whose generation is no longer current is discarded.
+     * [pending] is a relay that has bound its ports but isn't adopted yet, so teardown can close it right away.
+     */
+    private val lock = Any()
+    private var generation = 0
+    private var pending: Relay? = null
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -32,7 +43,7 @@ class RelayService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        if (intent?.action == ACTION_RESTART && relay != null) {
+        if (intent?.action == ACTION_RESTART && RelayState.status.value.isActive) {
             teardown()
             RelayLog.append("restarting with new settings")
         }
@@ -45,6 +56,7 @@ class RelayService : Service() {
         val status = RelayState.status.value
         val error = status.error.takeIf { !status.running }
         teardown()
+        starter.shutdown()
         RelayState.update(RelayStatus(error = error))
         RelayLog.append("relay stopped")
         refreshTile()
@@ -56,24 +68,31 @@ class RelayService : Service() {
             fail("No Sunshine host set. Pick one in SunRelay first.")
             return
         }
+        val current = synchronized(lock) { ++generation }
         RelayState.update(RelayStatus(starting = true, target = config.target))
         locks.acquire()
-        thread(name = "relay-start") {
+        starter.execute {
+            if (!isCurrent(current)) return@execute
             val address = runCatching { InetAddress.getByName(config.target) }.getOrElse {
-                fail("Can't resolve ${config.target}: ${it.message}")
-                return@thread
+                if (isCurrent(current)) fail("Can't resolve ${config.target}: ${it.message}")
+                return@execute
             }
-            val started = Relay(address, config.relay, RelayLog::append)
+            val started = Relay(address, config.relay, ClientFilter(network::hotspotPrefixes), RelayLog::append)
             val errors = started.start()
-            handler.post { onRelayStarted(config, address, started, errors) }
+            val adopted = synchronized(lock) { (current == generation).also { if (it) pending = started } }
+            if (!adopted) {
+                started.stop()
+                return@execute
+            }
+            handler.post { onRelayStarted(current, config, address, started, errors) }
         }
     }
 
-    private fun onRelayStarted(config: RelayConfig, address: InetAddress, started: Relay, errors: List<String>) {
-        if (!RelayState.status.value.starting) {
-            started.stop()
-            return
+    private fun onRelayStarted(current: Int, config: RelayConfig, address: InetAddress, started: Relay, errors: List<String>) {
+        val adopted = synchronized(lock) {
+            (current == generation && pending === started).also { if (it) pending = null }
         }
+        if (!adopted) return
         relay = started
         meter.reset()
         RelayState.update(
@@ -97,6 +116,8 @@ class RelayService : Service() {
         }
     }
 
+    private fun isCurrent(start: Int) = synchronized(lock) { start == generation }
+
     private fun tick() {
         val stats = relay?.stats ?: return
         val up = stats.bytesUp.get()
@@ -116,6 +137,11 @@ class RelayService : Service() {
     }
 
     private fun teardown() {
+        synchronized(lock) {
+            generation++
+            pending?.stop()
+            pending = null
+        }
         handler.removeCallbacks(ticker)
         mdns.stop()
         relay?.stop()

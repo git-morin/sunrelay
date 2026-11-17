@@ -2,6 +2,7 @@ package dev.morin.sunrelay.relay
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import dev.morin.sunrelay.MainActivity
@@ -19,7 +20,12 @@ class RelayTile : TileService() {
             val intent = Intent(this, MainActivity::class.java)
                 .putExtra(MainActivity.EXTRA_AUTOSTART, true)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            startActivityAndCollapse(PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE))
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startActivityAndCollapse(PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE))
+            } else {
+                @Suppress("DEPRECATION", "StartActivityAndCollapseDeprecated")
+                startActivityAndCollapse(intent)
+            }
         }
     }
 

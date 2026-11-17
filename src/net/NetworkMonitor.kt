@@ -5,24 +5,34 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import java.net.Inet4Address
+import java.net.NetworkInterface
 
 class NetworkMonitor(context: Context) {
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
 
     fun isVpnActive(): Boolean = networks().any { isVpn(it) }
 
-    fun hotspotAddresses(): List<TetherAddress> {
+    fun hotspotAddresses(): List<TetherAddress> = tetherInterfaces()
+        .flatMap { (ni, kind) ->
+            ni.inetAddresses.toList()
+                .filterIsInstance<Inet4Address>()
+                .filter { !it.isLoopbackAddress && !it.isLinkLocalAddress && it.isSiteLocalAddress }
+                .mapNotNull { it.hostAddress?.let { ip -> TetherAddress(ip, kind) } }
+        }
+        .sortedBy { it.kind.ordinal }
+
+    /** Subnets of the hotspot and tethering interfaces: the only clients the relay serves. */
+    fun hotspotPrefixes(): List<AddressPrefix> = tetherInterfaces().flatMap { (ni, _) ->
+        ni.interfaceAddresses
+            .filter { it.address != null && !it.address.isLoopbackAddress }
+            .map { AddressPrefix(it.address, it.networkPrefixLength.toInt()) }
+    }
+
+    private fun tetherInterfaces(): List<Pair<NetworkInterface, TetherKind>> {
         val uplinks = uplinkInterfaces()
         return LocalInterfaces.up()
             .filter { it.name !in uplinks }
-            .flatMap { ni ->
-                val kind = TetherKind.of(ni.name) ?: return@flatMap emptyList()
-                ni.inetAddresses.toList()
-                    .filterIsInstance<Inet4Address>()
-                    .filter { !it.isLoopbackAddress && !it.isLinkLocalAddress && it.isSiteLocalAddress }
-                    .mapNotNull { it.hostAddress?.let { ip -> TetherAddress(ip, kind) } }
-            }
-            .sortedBy { it.kind.ordinal }
+            .mapNotNull { ni -> TetherKind.of(ni.name)?.let { ni to it } }
     }
 
     fun vpnSubnets(): List<Ipv4Subnet> = networks().filter { isVpn(it) }.flatMap { network ->

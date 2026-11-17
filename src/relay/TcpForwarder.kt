@@ -14,14 +14,16 @@ import kotlin.concurrent.thread
 internal class TcpForwarder(
     private val target: InetAddress,
     private val port: Int,
+    private val clients: ClientFilter,
     private val stats: RelayStats,
     private val sockets: SocketRegistry,
     private val log: (String) -> Unit,
+    private val bindAddress: InetAddress? = null,
 ) {
     fun start() {
         val server = sockets.track(ServerSocket().apply {
             reuseAddress = true
-            bind(InetSocketAddress(port), BACKLOG)
+            bind(InetSocketAddress(bindAddress, port), BACKLOG)
         })
         thread(name = "tcp-accept-$port", isDaemon = true) { acceptLoop(server) }
     }
@@ -34,6 +36,11 @@ internal class TcpForwarder(
                 if (!sockets.closed) log("tcp $port accept: ${e.message}")
                 return
             }
+            if (!clients.allows(client.inetAddress)) {
+                log("tcp $port: refused ${client.remoteSocketAddress}, not on the hotspot")
+                runCatching { client.close() }
+                continue
+            }
             thread(name = "tcp-$port-${client.remoteSocketAddress}", isDaemon = true) { forward(client) }
         }
     }
@@ -42,26 +49,34 @@ internal class TcpForwarder(
         sockets.track(client)
         val clientIp = client.inetAddress.hostAddress ?: "?"
         val upstream = sockets.track(Socket())
+        var counted = false
         try {
             upstream.connect(InetSocketAddress(target, port), CONNECT_TIMEOUT_MS)
             tune(client)
             tune(upstream)
+            val fromClient = client.getInputStream()
+            val toClient = client.getOutputStream()
+            val fromUpstream = upstream.getInputStream()
+            val toUpstream = upstream.getOutputStream()
             stats.tcpActive.incrementAndGet()
             stats.clientJoined(clientIp)
+            counted = true
             log("tcp $port: ${client.remoteSocketAddress} connected")
             val uplink = thread(name = "tcp-$port-up", isDaemon = true) {
-                pump(client.getInputStream(), upstream.getOutputStream(), stats.bytesUp)
+                pump(fromClient, toUpstream, stats.bytesUp)
                 runCatching { upstream.shutdownOutput() }
             }
-            pump(upstream.getInputStream(), client.getOutputStream(), stats.bytesDown)
+            pump(fromUpstream, toClient, stats.bytesDown)
             runCatching { client.shutdownOutput() }
             uplink.join()
-            stats.tcpActive.decrementAndGet()
-            stats.clientLeft(clientIp)
             log("tcp $port: ${client.remoteSocketAddress} closed")
         } catch (e: Exception) {
             if (!sockets.closed) log("tcp $port: ${e.message}")
         } finally {
+            if (counted) {
+                stats.tcpActive.decrementAndGet()
+                stats.clientLeft(clientIp)
+            }
             sockets.release(upstream)
             sockets.release(client)
         }

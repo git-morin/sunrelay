@@ -7,7 +7,8 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
-internal class HostProber(private val threads: Int, private val timeoutMs: Int, private val waitSeconds: Long) {
+/** Probes in parallel, giving up on whatever hasn't answered once [budgetSeconds] have passed for the whole scan. */
+internal class HostProber(private val threads: Int, private val timeoutMs: Int, private val budgetSeconds: Long) {
 
     fun <T> probe(
         items: List<T>,
@@ -25,14 +26,23 @@ internal class HostProber(private val threads: Int, private val timeoutMs: Int, 
                         .also { onProbed(done.incrementAndGet(), items.size) }
                 })
             }
-            return futures.mapNotNull { runCatching { it.get(waitSeconds, TimeUnit.SECONDS) }.getOrNull() }
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(budgetSeconds)
+            return futures.mapNotNull { future ->
+                try {
+                    future.get((deadline - System.nanoTime()).coerceAtLeast(0), TimeUnit.NANOSECONDS)
+                } catch (e: InterruptedException) {
+                    throw e
+                } catch (_: Exception) {
+                    null
+                }
+            }
         } finally {
             pool.shutdownNow()
         }
     }
 
     companion object {
-        val forDevices = HostProber(threads = 16, timeoutMs = 4000, waitSeconds = 10)
-        val forSubnets = HostProber(threads = 64, timeoutMs = 1500, waitSeconds = 30)
+        val forDevices = HostProber(threads = 16, timeoutMs = 4000, budgetSeconds = 30)
+        val forSubnets = HostProber(threads = 64, timeoutMs = 1500, budgetSeconds = 180)
     }
 }

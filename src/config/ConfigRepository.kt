@@ -21,7 +21,7 @@ class ConfigRepository(context: Context) {
             ),
             target = prefs.getString(TARGET, null) ?: defaults.target,
             relay = RelaySettings(
-                tcpPorts = prefs.getString(TCP, null) ?: defaults.relay.tcpPorts,
+                tcpPorts = prefs.getString(TCP, null)?.let(RelaySettings::migrateTcpPorts) ?: defaults.relay.tcpPorts,
                 udpPorts = prefs.getString(UDP, null) ?: defaults.relay.udpPorts,
                 udpIdleSec = prefs.getInt(UDP_IDLE, defaults.relay.udpIdleSec),
                 mdns = prefs.getBoolean(MDNS, defaults.relay.mdns),

@@ -13,19 +13,25 @@ internal class UdpForwarder(
     target: InetAddress,
     private val port: Int,
     private val idleMs: Long,
+    private val clients: ClientFilter,
     private val stats: RelayStats,
     private val sockets: SocketRegistry,
     private val log: (String) -> Unit,
+    private val bindAddress: InetAddress? = null,
 ) {
     private val destination = InetSocketAddress(target, port)
     private val sessions = ConcurrentHashMap<SocketAddress, Session>()
+    private val refused = mutableSetOf<SocketAddress>()
+    private var full = false
 
     fun start() {
+        // Built outside apply: in there, `port` would be DatagramSocket.getPort(), which is -1 until connected.
+        val local = InetSocketAddress(bindAddress, port)
         val listener = sockets.track(DatagramSocket(null).apply {
             reuseAddress = true
             receiveBufferSize = SOCKET_BUFFER
             sendBufferSize = SOCKET_BUFFER
-            bind(InetSocketAddress(port))
+            bind(local)
         })
         thread(name = "udp-$port", isDaemon = true) { receiveLoop(listener) }
     }
@@ -42,11 +48,26 @@ internal class UdpForwarder(
                 return
             }
             val source = packet.socketAddress
-            val session = sessions[source] ?: runCatching { Session(listener, source).also { it.start() } }
-                .onFailure { log("udp $port dial: ${it.message}") }
-                .getOrNull() ?: continue
+            val session = sessions[source] ?: openSession(listener, packet) ?: continue
             session.sendUpstream(buffer, packet.length)
         }
+    }
+
+    private fun openSession(listener: DatagramSocket, packet: DatagramPacket): Session? {
+        val source = packet.socketAddress
+        if (!clients.allows(packet.address)) {
+            if (refused.size < MAX_REFUSED_LOGGED && refused.add(source)) log("udp $port: refused $source, not on the hotspot")
+            return null
+        }
+        if (sessions.size >= MAX_SESSIONS) {
+            if (!full) log("udp $port: $MAX_SESSIONS sessions open, refusing new ones until some go idle")
+            full = true
+            return null
+        }
+        full = false
+        return runCatching { Session(listener, source).also { it.start() } }
+            .onFailure { log("udp $port dial: ${it.message}") }
+            .getOrNull()
     }
 
     private inner class Session(private val listener: DatagramSocket, private val source: SocketAddress) {
@@ -112,5 +133,9 @@ internal class UdpForwarder(
         const val SOCKET_BUFFER = 4 shl 20
         const val MAX_DATAGRAM = 65535
         const val RECEIVE_TIMEOUT_MS = 1000
+        const val MAX_REFUSED_LOGGED = 32
+
+        /** Each session holds a thread and two 4 MB buffers; a few Moonlight clients need a handful per port. */
+        const val MAX_SESSIONS = 32
     }
 }

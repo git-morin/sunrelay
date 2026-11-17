@@ -6,12 +6,14 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import dev.morin.sunrelay.relay.RelayService
+import dev.morin.sunrelay.sunshine.SunshinePins
 import dev.morin.sunrelay.ui.App
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        SunshinePins.init(this)
         handleAutostart(intent)
         setContent { App() }
     }

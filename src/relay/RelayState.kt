@@ -5,6 +5,7 @@ import dev.morin.sunrelay.net.TetherAddress
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -51,7 +52,7 @@ object RelayLog {
     fun append(line: String) {
         Log.i("SunRelay", line)
         val time = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
-        mutableLines.value = (mutableLines.value + "$time $line").takeLast(MAX_LINES)
+        mutableLines.update { (it + "$time $line").takeLast(MAX_LINES) }
     }
 
     fun clear() {
