@@ -20,7 +20,7 @@ data class ZeroTier(val token: String = "", val network: String = "") : ApiVpn()
     override val canScan: Boolean get() = token.isNotBlank() && network.isNotBlank()
 
     override fun writeTo(settings: SettingsWriter) {
-        settings.string(TOKEN, token.trim())
+        settings.secret(TOKEN, token.trim())
         settings.string(NETWORK, network.trim())
     }
 
@@ -75,6 +75,6 @@ data class ZeroTier(val token: String = "", val network: String = "") : ApiVpn()
         private val NETWORK_ID = Regex("[0-9a-f]{16}")
 
         fun readFrom(settings: SettingsReader) =
-            ZeroTier(settings.string(TOKEN).orEmpty(), settings.string(NETWORK).orEmpty())
+            ZeroTier(settings.secret(TOKEN).orEmpty(), settings.string(NETWORK).orEmpty())
     }
 }

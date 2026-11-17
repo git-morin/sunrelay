@@ -37,6 +37,7 @@ import dev.morin.sunrelay.vpn.ScanProgress
 import dev.morin.sunrelay.vpn.Vpn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 
 @Stable
@@ -55,9 +56,13 @@ class HostScanState {
         scanning = true
         error = null
         results = null
-        val outcome = withContext(Dispatchers.IO) { runCatching { vpn.scan(context) { progress = it } } }
-        scanning = false
-        progress = null
+        // Interruptible, so leaving the screen stops the probes instead of letting them run on.
+        val outcome = try {
+            runInterruptible(Dispatchers.IO) { runCatching { vpn.scan(context) { progress = it } } }
+        } finally {
+            scanning = false
+            progress = null
+        }
         outcome.onSuccess { results = it }.onFailure { error = it.message ?: it.javaClass.simpleName }
         return outcome.getOrNull()
     }

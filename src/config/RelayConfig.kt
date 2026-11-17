@@ -37,7 +37,7 @@ data class NetworkSettings(
 }
 
 data class RelaySettings(
-    val tcpPorts: String = "47984,47989,47990,48010",
+    val tcpPorts: String = DEFAULT_TCP_PORTS,
     val udpPorts: String = "47998,47999,48000,48002,48010",
     val udpIdleSec: Int = 60,
     val mdns: Boolean = true,
@@ -46,14 +46,26 @@ data class RelaySettings(
     val udpPortList: List<Int> get() = parsePorts(udpPorts)
     val udpIdleMs: Long get() = udpIdleSec * 1000L
 
-    fun withUdpIdle(seconds: Int) = copy(udpIdleSec = seconds.coerceIn(MIN_IDLE_SEC, MAX_IDLE_SEC))
+    fun withUdpIdle(seconds: Int) = copy(udpIdleSec = seconds.coerceIn(IDLE_RANGE))
 
-    private fun parsePorts(s: String): List<Int> =
-        s.split(',', ' ').mapNotNull { it.trim().toIntOrNull() }.filter { it in 1..65535 }.distinct()
+    companion object {
+        private const val DEFAULT_TCP_PORTS = "47984,47989,48010"
 
-    private companion object {
-        const val MIN_IDLE_SEC = 5
-        const val MAX_IDLE_SEC = 3600
+        /** Older builds also relayed 47990, Sunshine's web admin UI, which Moonlight never needs. */
+        private const val LEGACY_TCP_PORTS = "47984,47989,47990,48010"
+
+        fun migrateTcpPorts(saved: String): String = if (saved == LEGACY_TCP_PORTS) DEFAULT_TCP_PORTS else saved
+
+        val IDLE_RANGE = 5..3600
+
+        /** Entries in a port list that aren't a port number, so the UI can say they're ignored. */
+        fun invalidPorts(s: String): List<String> = tokens(s).filter { it.toIntOrNull() !in PORT_RANGE }
+
+        private val PORT_RANGE = 1..65535
+
+        private fun tokens(s: String) = s.split(',', ' ').map { it.trim() }.filter { it.isNotEmpty() }
+
+        private fun parsePorts(s: String): List<Int> = tokens(s).mapNotNull { it.toIntOrNull() }.filter { it in PORT_RANGE }.distinct()
     }
 }
 

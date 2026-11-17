@@ -2,33 +2,44 @@ package dev.morin.sunrelay.config
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import dev.morin.sunrelay.ui.theme.Accent
 import dev.morin.sunrelay.ui.theme.ThemeMode
 import dev.morin.sunrelay.vpn.Vpns
 
-class ConfigRepository(context: Context) {
+class ConfigRepository(context: Context, private val codec: SecretCodec = SecretCodec(KeystoreKey::get)) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun load(): RelayConfig {
         val defaults = RelayConfig()
+        var foundPlainSecret = false
         val reader = object : SettingsReader {
             override fun string(key: String): String? = prefs.getString(key, null)
+
+            override fun secret(key: String): String? {
+                val stored = prefs.getString(key, null) ?: return null
+                if (!codec.isEncoded(stored)) foundPlainSecret = true
+                return runCatching { codec.decode(stored) }.getOrNull() ?: run {
+                    Log.w(TAG, "can't decrypt the saved $key, it needs to be entered again")
+                    null
+                }
+            }
         }
-        return RelayConfig(
+        val config = RelayConfig(
             network = NetworkSettings(
                 selectedKey = prefs.getString(NETWORK, null) ?: defaults.network.selectedKey,
                 vpns = Vpns.load(reader),
             ),
             target = prefs.getString(TARGET, null) ?: defaults.target,
             relay = RelaySettings(
-                tcpPorts = prefs.getString(TCP, null) ?: defaults.relay.tcpPorts,
+                tcpPorts = prefs.getString(TCP, null)?.let(RelaySettings::migrateTcpPorts) ?: defaults.relay.tcpPorts,
                 udpPorts = prefs.getString(UDP, null) ?: defaults.relay.udpPorts,
                 udpIdleSec = prefs.getInt(UDP_IDLE, defaults.relay.udpIdleSec),
                 mdns = prefs.getBoolean(MDNS, defaults.relay.mdns),
             ),
             login = SunshineLogin(
                 user = prefs.getString(SUNSHINE_USER, null).orEmpty(),
-                password = prefs.getString(SUNSHINE_PASSWORD, null).orEmpty(),
+                password = reader.secret(SUNSHINE_PASSWORD).orEmpty(),
                 pairedUuid = prefs.getString(PAIRED_UUID, null).orEmpty(),
             ),
             appearance = Appearance(
@@ -42,6 +53,9 @@ class ConfigRepository(context: Context) {
                 prereleases = prefs.getBoolean(DEV_PRERELEASES, false),
             ),
         )
+        // Secrets saved by older builds are in plain text; saving once encrypts them.
+        if (foundPlainSecret) save(config)
+        return config
     }
 
     fun save(config: RelayConfig) {
@@ -49,6 +63,10 @@ class ConfigRepository(context: Context) {
         val writer = object : SettingsWriter {
             override fun string(key: String, value: String) {
                 editor.putString(key, value)
+            }
+
+            override fun secret(key: String, value: String) {
+                editor.putString(key, encrypt(key, value))
             }
         }
         config.network.vpns.forEach { it.writeTo(writer) }
@@ -60,7 +78,7 @@ class ConfigRepository(context: Context) {
             .putInt(UDP_IDLE, config.relay.udpIdleSec)
             .putBoolean(MDNS, config.relay.mdns)
             .putString(SUNSHINE_USER, config.login.user.trim())
-            .putString(SUNSHINE_PASSWORD, config.login.password)
+            .putString(SUNSHINE_PASSWORD, encrypt(SUNSHINE_PASSWORD, config.login.password))
             .putString(PAIRED_UUID, config.login.pairedUuid)
             .putBoolean(ONBOARDED, config.onboarded)
             .putBoolean(AUTO_CHECK, config.autoCheck)
@@ -71,7 +89,14 @@ class ConfigRepository(context: Context) {
             .apply()
     }
 
+    /** Falls back to plain text, as before encryption, rather than losing what was entered if the Keystore fails. */
+    private fun encrypt(key: String, value: String): String = runCatching { codec.encode(value) }.getOrElse {
+        Log.w(TAG, "can't encrypt $key, saving it unencrypted", it)
+        value
+    }
+
     private companion object {
+        const val TAG = "SunRelay"
         const val PREFS = "relay"
         const val NETWORK = "netMode"
         const val TARGET = "target"

@@ -5,3 +5,4 @@ keystore.properties
 *.jks
 dist/
 .idea/
+node_modules/

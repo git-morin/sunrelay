@@ -8,61 +8,89 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
 
 internal class TcpForwarder(
     private val target: InetAddress,
     private val port: Int,
+    private val clients: ClientFilter,
     private val stats: RelayStats,
     private val sockets: SocketRegistry,
     private val log: (String) -> Unit,
+    private val bindAddress: InetAddress? = null,
+    private val halfCloseGraceMs: Long = Relay.HALF_CLOSE_GRACE_MS,
 ) {
     fun start() {
-        val server = sockets.track(ServerSocket().apply {
-            reuseAddress = true
-            bind(InetSocketAddress(port), BACKLOG)
-        })
+        val server = sockets.open(ServerSocket()) {
+            it.reuseAddress = true
+            it.bind(InetSocketAddress(bindAddress, port), BACKLOG)
+        }
         thread(name = "tcp-accept-$port", isDaemon = true) { acceptLoop(server) }
     }
 
     private fun acceptLoop(server: ServerSocket) {
         while (!sockets.closed) {
+            // Tracked as soon as it's accepted, so a stop from here on closes it.
             val client = try {
-                server.accept()
+                sockets.track(server.accept())
             } catch (e: Exception) {
                 if (!sockets.closed) log("tcp $port accept: ${e.message}")
                 return
+            }
+            if (!clients.allows(client.inetAddress)) {
+                log("tcp $port: refused ${client.remoteSocketAddress}, not on the hotspot")
+                sockets.release(client)
+                continue
             }
             thread(name = "tcp-$port-${client.remoteSocketAddress}", isDaemon = true) { forward(client) }
         }
     }
 
     private fun forward(client: Socket) {
-        sockets.track(client)
         val clientIp = client.inetAddress.hostAddress ?: "?"
-        val upstream = sockets.track(Socket())
+        var upstream: Socket? = null
+        var counted = false
         try {
-            upstream.connect(InetSocketAddress(target, port), CONNECT_TIMEOUT_MS)
+            val remote = sockets.track(Socket()).also { upstream = it }
+            remote.connect(InetSocketAddress(target, port), CONNECT_TIMEOUT_MS)
             tune(client)
-            tune(upstream)
+            tune(remote)
+            val fromClient = client.getInputStream()
+            val toClient = client.getOutputStream()
+            val fromUpstream = remote.getInputStream()
+            val toUpstream = remote.getOutputStream()
             stats.tcpActive.incrementAndGet()
             stats.clientJoined(clientIp)
+            counted = true
             log("tcp $port: ${client.remoteSocketAddress} connected")
-            val uplink = thread(name = "tcp-$port-up", isDaemon = true) {
-                pump(client.getInputStream(), upstream.getOutputStream(), stats.bytesUp)
-                runCatching { upstream.shutdownOutput() }
+            val finished = CountDownLatch(2)
+            fun relayDirection(source: InputStream, sink: OutputStream, counter: AtomicLong, shutdown: () -> Unit) {
+                pump(source, sink, counter)
+                runCatching(shutdown)
+                finished.countDown()
+                // A peer that never closes its side would hold both threads forever, so give it a grace period, then close both.
+                if (!finished.await(halfCloseGraceMs, TimeUnit.MILLISECONDS)) {
+                    runCatching { client.close() }
+                    runCatching { remote.close() }
+                }
             }
-            pump(upstream.getInputStream(), client.getOutputStream(), stats.bytesDown)
-            runCatching { client.shutdownOutput() }
+            val uplink = thread(name = "tcp-$port-up", isDaemon = true) {
+                relayDirection(fromClient, toUpstream, stats.bytesUp) { remote.shutdownOutput() }
+            }
+            relayDirection(fromUpstream, toClient, stats.bytesDown) { client.shutdownOutput() }
             uplink.join()
-            stats.tcpActive.decrementAndGet()
-            stats.clientLeft(clientIp)
             log("tcp $port: ${client.remoteSocketAddress} closed")
         } catch (e: Exception) {
             if (!sockets.closed) log("tcp $port: ${e.message}")
         } finally {
-            sockets.release(upstream)
+            if (counted) {
+                stats.tcpActive.decrementAndGet()
+                stats.clientLeft(clientIp)
+            }
+            upstream?.let(sockets::release)
             sockets.release(client)
         }
     }

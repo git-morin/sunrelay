@@ -12,4 +12,4 @@ Only the latest release receives security fixes.
 
 ## Scope
 
-SunRelay stores your Sunshine login and VPN API tokens only on your phone, never backs them up, and only sends them to the host or VPN service you configured. Sunshine itself should only be reachable over your VPN, never exposed to the internet.
+SunRelay stores your Sunshine login and VPN API tokens only on your phone, never backs them up, and only sends them to the host or VPN service you configured. It remembers Sunshine's self-signed certificate the first time it connects and refuses a different one after that. Sunshine itself should only be reachable over your VPN, never exposed to the internet. The relay only accepts devices on the phone's hotspot or tethering, and doesn't forward Sunshine's web UI port.

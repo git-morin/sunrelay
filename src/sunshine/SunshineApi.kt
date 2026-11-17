@@ -5,12 +5,11 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.SecureRandom
-import java.security.cert.X509Certificate
 import java.util.Base64
 import javax.net.ssl.HostnameVerifier
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLContext
-import javax.net.ssl.X509TrustManager
+import javax.net.ssl.SSLException
 
 data class PairedClient(val name: String, val uuid: String, val enabled: Boolean)
 
@@ -20,7 +19,12 @@ data class PendingPairing(val id: String, val name: String, val address: String)
 
 class SunshineApiException(val code: Int, message: String) : Exception(message)
 
-class SunshineApi(private val host: String, private val user: String, private val password: String) {
+class SunshineApi(
+    private val host: String,
+    private val user: String,
+    private val password: String,
+    private val pins: PinStore = SunshinePins,
+) {
 
     fun clients(): List<PairedClient> =
         request("GET", "/api/clients/list").optJSONArray("named_certs").objects().map {
@@ -51,7 +55,10 @@ class SunshineApi(private val host: String, private val user: String, private va
 
     private fun request(method: String, path: String, body: JSONObject? = null): JSONObject {
         val conn = URL("https://${urlHost(host)}:$PORT$path").openConnection() as HttpsURLConnection
-        conn.sslSocketFactory = selfSignedContext.socketFactory
+        conn.sslSocketFactory = SSLContext.getInstance("TLS")
+            .apply { init(null, arrayOf(CertificatePins.trustManager(host, pins)), SecureRandom()) }
+            .socketFactory
+        // Sunshine's certificate never names the host; the pin above is what identifies it.
         conn.hostnameVerifier = HostnameVerifier { _, _ -> true }
         conn.connectTimeout = 5000
         conn.readTimeout = 8000
@@ -72,6 +79,9 @@ class SunshineApi(private val host: String, private val user: String, private va
                 throw SunshineApiException(code, error ?: "HTTP $code")
             }
             return if (text.isBlank()) JSONObject() else JSONObject(text)
+        } catch (e: SSLException) {
+            if (e.causes().any { it is PinMismatchException }) throw SunshineApiException(0, CERTIFICATE_CHANGED)
+            throw e
         } finally {
             conn.disconnect()
         }
@@ -80,13 +90,10 @@ class SunshineApi(private val host: String, private val user: String, private va
     private companion object {
         const val PORT = 47990
         val UNSUPPORTED = setOf(404, 405)
+        const val CERTIFICATE_CHANGED =
+            "Sunshine's certificate changed since SunRelay first connected. If you reinstalled or reset Sunshine, " +
+                "tap Forget certificate in Settings → Sunshine login."
 
-        val selfSignedContext: SSLContext = SSLContext.getInstance("TLS").apply {
-            init(null, arrayOf(object : X509TrustManager {
-                override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
-                override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
-                override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
-            }), SecureRandom())
-        }
+        fun Throwable.causes(): Sequence<Throwable> = generateSequence(this) { it.cause.takeIf { c -> c !== it } }
     }
 }

@@ -134,7 +134,7 @@ private fun WelcomeStep(state: AppState) {
         style = MaterialTheme.typography.bodyLarge,
     )
     StatusRow(state.permissions.runtimeGranted, "Local network access & notifications", "Allow") {
-        launcher.launch(AppPermissions.RUNTIME)
+        launcher.launch(AppPermissions.runtime(context))
     }
     StatusRow(state.permissions.unrestrictedBattery, "Unrestricted battery", "Allow") {
         SystemScreens.batteryOptimization(context)

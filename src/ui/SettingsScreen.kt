@@ -75,6 +75,7 @@ import dev.morin.sunrelay.config.RelaySettings
 import dev.morin.sunrelay.relay.RelayLog
 import dev.morin.sunrelay.relay.RelayState
 import dev.morin.sunrelay.sunshine.PairedClient
+import dev.morin.sunrelay.sunshine.SunshinePins
 import dev.morin.sunrelay.ui.theme.Accent
 import dev.morin.sunrelay.ui.theme.ThemeMode
 import kotlinx.coroutines.Dispatchers
@@ -133,6 +134,7 @@ private fun SunshineLoginSection(config: RelayConfig, onChange: (RelayConfig) ->
     val scope = rememberCoroutineScope()
     var clients by remember { mutableStateOf<List<PairedClient>?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
+    var pinned by remember(config.target, message) { mutableStateOf(config.hasTarget && SunshinePins.has(config.target)) }
 
     fun loadClients() {
         message = "…"
@@ -158,6 +160,13 @@ private fun SunshineLoginSection(config: RelayConfig, onChange: (RelayConfig) ->
             OutlinedButton(onClick = ::loadClients, enabled = config.canUseSunshineApi) { Text("Test") }
             Spacer(Modifier.width(12.dp))
             message?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        }
+        if (pinned) {
+            TextButton(onClick = {
+                SunshinePins.forget(config.target)
+                pinned = false
+                message = "Certificate forgotten. The next connection trusts Sunshine's current one."
+            }) { Text("Forget certificate") }
         }
         clients?.let { list ->
             Text("Paired devices", style = MaterialTheme.typography.titleSmall)
@@ -245,22 +254,41 @@ private fun AdvancedSection(config: RelayConfig, onChange: (RelayConfig) -> Unit
                 ),
             ),
         )
-        OutlinedTextField(
-            relay.tcpPorts, { update(relay.copy(tcpPorts = it)) }, Modifier.fillMaxWidth(),
-            enabled = !relayActive, singleLine = true, label = { Text("TCP ports") },
-        )
-        OutlinedTextField(
-            relay.udpPorts, { update(relay.copy(udpPorts = it)) }, Modifier.fillMaxWidth(),
-            enabled = !relayActive, singleLine = true, label = { Text("UDP ports") },
-        )
-        OutlinedTextField(
-            relay.udpIdleSec.toString(), { v -> v.toIntOrNull()?.let { update(relay.withUdpIdle(it)) } }, Modifier.fillMaxWidth(),
-            enabled = !relayActive, singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            label = { Text("UDP idle timeout (s)") },
-        )
+        PortsField("TCP ports", relay.tcpPorts, enabled = !relayActive) { update(relay.copy(tcpPorts = it)) }
+        PortsField("UDP ports", relay.udpPorts, enabled = !relayActive) { update(relay.copy(udpPorts = it)) }
+        UdpIdleField(relay.udpIdleSec, enabled = !relayActive) { update(relay.withUdpIdle(it)) }
         TextButton(onClick = { update(RelaySettings()) }, enabled = !relayActive) { Text("Reset to defaults") }
     }
+}
+
+@Composable
+private fun PortsField(label: String, value: String, enabled: Boolean, onChange: (String) -> Unit) {
+    val invalid = RelaySettings.invalidPorts(value)
+    OutlinedTextField(
+        value, onChange, Modifier.fillMaxWidth(),
+        enabled = enabled, singleLine = true, label = { Text(label) },
+        isError = invalid.isNotEmpty(),
+        supportingText = invalid.takeIf { it.isNotEmpty() }?.let { { Text("Ignored, not a port: ${it.joinToString()}") } },
+    )
+}
+
+/** Keeps what's typed while editing; the saved value is clamped, and the field catches up when it changes elsewhere. */
+@Composable
+private fun UdpIdleField(seconds: Int, enabled: Boolean, onChange: (Int) -> Unit) {
+    val range = RelaySettings.IDLE_RANGE
+    var text by rememberSaveable { mutableStateOf(seconds.toString()) }
+    LaunchedEffect(seconds) { if (text.toIntOrNull()?.coerceIn(range) != seconds) text = seconds.toString() }
+    val typed = text.toIntOrNull()
+    OutlinedTextField(
+        text,
+        { v -> if (v.all(Char::isDigit) && v.length <= 4) { text = v; v.toIntOrNull()?.let(onChange) } },
+        Modifier.fillMaxWidth(),
+        enabled = enabled, singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        label = { Text("UDP idle timeout (s)") },
+        isError = typed == null || typed !in range,
+        supportingText = { Text("${range.first}–${range.last} seconds" + if (typed != null && typed !in range) ", using $seconds" else "") },
+    )
 }
 
 @Composable
