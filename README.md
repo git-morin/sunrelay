@@ -2,11 +2,10 @@
 
 Stream from a [Sunshine](https://github.com/SunshineStream/Sunshine) host to devices on your phone's hotspot, with the phone relaying the stream over your VPN.
 
-```mermaid
-flowchart LR
-    C["Moonlight client"] -- "Connected to hotspot" --> P["Phone running SunRelay"]
-    P -- "Mesh VPN / overlay network" --> S["Sunshine host"]
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/how-it-works-dark.svg">
+  <img src="docs/how-it-works-light.svg" width="100%" alt="A Moonlight client on the phone's hotspot connects to SunRelay on the phone, which relays the stream over the VPN to the Sunshine host.">
+</picture>
 
 ## How it works
 
@@ -29,4 +28,4 @@ flowchart LR
 
 Sunshine, Moonlight, Tailscale, ZeroTier, NetBird and Headscale are trademarks of their respective owners. SunRelay is an independent project and is not affiliated with, sponsored by or endorsed by any of them.
 
-The app icon uses the Sunshine logo, licensed under GPL-3.0 by the Sunshine authors.
+The app icon and the diagram above use the Sunshine logo, licensed under GPL-3.0 by the Sunshine authors.
